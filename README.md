@@ -53,6 +53,14 @@ Revert masks for the entire dataset:
 
 ```python script.py --dataset path/to/dataset --revert```
 
+## Result
+
+For each folder, new masks are created as forced Masks : ```eyeflow/forceMaskArtery.png``` and ```eyeflow/forceMaskVein.png```.
+During the next eyeflow processing, if the paramater ```ForcedMasks``` in the *input_EF_params.json* equals 1 or -1, they will be chosen as masks.
+If forced Masks already exist, they will be renamed ```eyeflow/forceMaskArtery_full.png``` and ```eyeflow/forceMaskVein_full.png```
+
+When reverting, original forced masks will retrieve their names, and large masks will be renamed ```eyeflow/forceMaskArtery_large.png``` and ```eyeflow/forceMaskVein_large.png```
+
 ## Notes
 
 The script automatically downloads the ONNX model for optic disc detection if it is not present.

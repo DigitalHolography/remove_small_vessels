@@ -224,7 +224,9 @@ def select_highest_eyeflow_subdirectory(base_path: str):
 def create_large_vessel_masks(measure_folder_path: str, optic_disc_detector_path:str, radius_thresh:float=None):
     """Retrieves M0 image and artery/vein masks. Find optic disc center using the optic_disc_detector. Then create large vessel masks in folder. Previous masks are kept, with the suffix '_full'"""
 
-    eyeflow_path = os.path.join(select_highest_eyeflow_subdirectory(os.path.join(measure_folder_path, "eyeflow")))
+    eyeflow_root_path = os.path.join(measure_folder_path, "eyeflow")
+    ground_truth_path = os.path.join(eyeflow_root_path, "mask")
+    eyeflow_path = os.path.join(select_highest_eyeflow_subdirectory(eyeflow_root_path))
     if eyeflow_path is None or not os.path.exists(eyeflow_path):
         raise Exception("No eyeflow folder found")
     
@@ -238,14 +240,14 @@ def create_large_vessel_masks(measure_folder_path: str, optic_disc_detector_path
     if not os.path.exists(mask_artery_path) or not os.path.exists(mask_vein_path):
         raise Exception("artery/vein mask path incorrect")
     
-    mask_vein_full_path = os.path.join(eyeflow_path, "png", "mask", (eyeflow_dir_name + "_maskVein_full.png"))
-    mask_artery_full_path = os.path.join(eyeflow_path, "png", "mask", (eyeflow_dir_name + "_maskArtery_full.png"))
-    artery_full = os.path.exists(mask_artery_full_path)
-    vein_full = os.path.exists(mask_vein_full_path)
+    force_mask_vein_path = os.path.join(ground_truth_path, "forceMaskVein.png")
+    force_mask_artery_path = os.path.join(ground_truth_path, "forceMaskArtery.png")
+    force_mask_vein_full_path = os.path.join(ground_truth_path, "forceMaskVein_full.png")
+    force_mask_artery_full_path = os.path.join(ground_truth_path, "forceMaskArtery_full.png")
 
     M0 = np.array(Image.open(M0_path).convert('L').resize((512,512), Image.BILINEAR))
-    mask_vein = np.array(Image.open(mask_vein_path if not vein_full else mask_vein_full_path).resize((512,512), Image.NEAREST)).astype(np.uint8)
-    mask_artery = np.array(Image.open(mask_artery_path if not artery_full else mask_artery_full_path).resize((512,512), Image.NEAREST)).astype(np.uint8)
+    mask_vein = np.array(Image.open(mask_vein_path).resize((512,512), Image.NEAREST)).astype(np.uint8)
+    mask_artery = np.array(Image.open(mask_artery_path).resize((512,512), Image.NEAREST)).astype(np.uint8)
 
     papilla_sess = model_utils.load_onnx_model(optic_disc_detector_path)
     x_center, y_center, _, _ = model_utils.get_bounding_box(M0, papilla_sess)
@@ -253,13 +255,14 @@ def create_large_vessel_masks(measure_folder_path: str, optic_disc_detector_path
     mask_vein_large = prune_small_vessels(mask_vein, x_center, y_center, radius_thresh=radius_thresh)
     mask_artery_large = prune_small_vessels(mask_artery, x_center, y_center, radius_thresh=radius_thresh)
 
-    if not os.path.exists(mask_vein_full_path):
-        os.rename(mask_vein_path, mask_vein_full_path)
-    if not os.path.exists(mask_artery_full_path):
-        os.rename(mask_artery_path, mask_artery_full_path)
+    # If force masks already exists, dont overwrite them
+    if os.path.exists(force_mask_vein_path) and not os.path.exists(force_mask_vein_full_path):
+        os.replace(force_mask_vein_path, force_mask_vein_full_path)
+    if os.path.exists(force_mask_artery_path) and not os.path.exists(force_mask_artery_full_path):
+        os.replace(force_mask_artery_path, force_mask_artery_full_path)
 
-    Image.fromarray(mask_vein_large.astype(np.uint8)*255).resize((1023,1023), Image.NEAREST).save(mask_vein_path)
-    Image.fromarray(mask_artery_large.astype(np.uint8)*255).resize((1023,1023), Image.NEAREST).save(mask_artery_path)
+    Image.fromarray(mask_vein_large.astype(np.uint8)*255).resize((1023,1023), Image.NEAREST).save(force_mask_vein_path)
+    Image.fromarray(mask_artery_large.astype(np.uint8)*255).resize((1023,1023), Image.NEAREST).save(force_mask_artery_path)
 
     overlay_vein_path = os.path.join(eyeflow_path, "png", "mask", (eyeflow_dir_name + "_M0_Vein.png"))
     overlay_artery_path = os.path.join(eyeflow_path, "png", "mask", (eyeflow_dir_name + "_M0_Artery.png"))
@@ -269,11 +272,11 @@ def create_large_vessel_masks(measure_folder_path: str, optic_disc_detector_path
     overlay_av_full_path = os.path.join(eyeflow_path, "png", "mask", (eyeflow_dir_name + "_M0_RGB_full.png"))
 
     if not os.path.exists(overlay_vein_full_path):
-        os.rename(overlay_vein_path, overlay_vein_full_path)
+        os.replace(overlay_vein_path, overlay_vein_full_path)
     if not os.path.exists(overlay_artery_full_path):
-        os.rename(overlay_artery_path, overlay_artery_full_path)
+        os.replace(overlay_artery_path, overlay_artery_full_path)
     if not os.path.exists(overlay_av_full_path):
-        os.rename(overlay_av_path, overlay_av_full_path)
+        os.replace(overlay_av_path, overlay_av_full_path)
     
     eyeflow_utils.generate_vessel_overlay(M0=M0, mask_vein=mask_vein_large, mask_artery=mask_artery_large, artery_path=overlay_artery_path, vein_path=overlay_vein_path, av_path=overlay_av_path)
 
@@ -318,41 +321,61 @@ def apply_script_to_dataset(current_path: str, optic_disc_detector_path: str, re
         print(f"\n[Dataset] Applying script for each measure in {date_path}")
         apply_script_to_each_measure(date_path=date_path, optic_disc_detector_path=optic_disc_detector_path, revert=revert)
 
+def remove_files_with_suffix(folder_path, suffix):
+    for filename in os.listdir(folder_path):
+        filepath = os.path.join(folder_path, filename)
+        if not os.path.isfile(filepath):
+            continue
+        # Split into base and extension
+        base, ext = os.path.splitext(filename)
+
+        # Only rename if base ends with _full
+        if not base.endswith(suffix):
+            continue
+
+        new_base = base[:-len((suffix))]   # remove "_full" (5 chars)
+        new_name = new_base + ext
+        new_path = os.path.join(folder_path, new_name)
+
+        os.replace(filepath, new_path)
 
 def revert_masks_in_folder(folder_path):
     """
     Renames all files ending with '_full.<ext>' by removing the '_full' suffix.
     """
-    eyeflow_path = os.path.join(folder_path, "eyeflow")
-    if not os.path.exists(eyeflow_path):
+    eyeflow_root_path = os.path.join(folder_path, "eyeflow")
+    if not os.path.exists(eyeflow_root_path):
         return
     
-    eyeflow_path = os.path.join(select_highest_eyeflow_subdirectory(eyeflow_path))
+    ground_truth_path = os.path.join(eyeflow_root_path, "mask")
+    if not os.path.exists(ground_truth_path):
+        raise Exception("No ground truth folder found")
+    force_mask_vein_path = os.path.join(ground_truth_path, "forceMaskVein.png")
+    force_mask_artery_path = os.path.join(ground_truth_path, "forceMaskArtery.png")
+    force_mask_vein_large_path = os.path.join(ground_truth_path, "forceMaskVein_large.png")
+    force_mask_artery_large_path = os.path.join(ground_truth_path, "forceMaskArtery_large.png")
+    force_mask_vein_full_path = os.path.join(ground_truth_path, "forceMaskVein_full.png")
+    force_mask_artery_full_path = os.path.join(ground_truth_path, "forceMaskArtery_full.png")
+
+    if os.path.exists(force_mask_artery_path) and not os.path.exists(force_mask_artery_full_path):
+        os.replace(force_mask_artery_path, force_mask_artery_large_path)
+    if os.path.exists(force_mask_vein_path) and not os.path.exists(force_mask_vein_full_path):
+        os.replace(force_mask_vein_path, force_mask_vein_large_path)
+
+    remove_files_with_suffix(ground_truth_path, "_full")
+
+    eyeflow_path = os.path.join(select_highest_eyeflow_subdirectory(eyeflow_root_path))
+    if eyeflow_path is None or not os.path.exists(eyeflow_path):
+        raise Exception("No eyeflow folder found")
+
     mask_path = os.path.join(eyeflow_path, 'png', 'mask')
     if mask_path is None or not os.path.exists(mask_path):
         raise Exception("No eyeflow folder found")
-    
-    # Match files that end exactly with `_full.<ext>`
-    pattern = os.path.join(mask_path, "*_full.*")
-    files = glob.glob(pattern)
-
-    for filepath in files:
-        dirname, filename = os.path.split(filepath)
-
-        # Split into base and extension
-        base, ext = os.path.splitext(filename)
-
-        # Only rename if base ends with _full
-        if not base.endswith("_full"):
-            continue
-
-        new_base = base[:-5]   # remove "_full" (5 chars)
-        new_name = new_base + ext
-        new_path = os.path.join(dirname, new_name)
-
-        os.rename(filepath, new_path)
+    remove_files_with_suffix(mask_path, "_full")
 
     print(f"Large masks removed in {folder_path}")
+
+
 
 
 
