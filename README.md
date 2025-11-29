@@ -18,6 +18,7 @@ Python packages (see requirements.txt)
 
 Excpected dataset structure:
 
+```
 dataset/
 ├─ YYYY-MM-DD/
 │  ├─ measure1/
@@ -28,6 +29,7 @@ dataset/
 │  ├─ measure1/
 │  └─ ...
 └─ ...
+```
 
 ## Script Usage
 
